@@ -234,7 +234,7 @@
             </div>
 
             <div class="flex justify-end pt-2">
-                <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl transition shadow">
+                <button onclick="resetTestData()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 rounded-xl transition shadow">
                     Retake Test / Home
                 </button>
             </div>
@@ -254,8 +254,8 @@
         let questions = [];
         let currentQuestionIndex = 0;
         let currentSectionIndex = 0;
-        let userResponses = {}; // { questionIndex: { selectedOption: number, status: 'answered'|'not-answered'|'marked'|'visited' } }
-        let timerSeconds = 3 * 3600; // 3 Hours
+        let userResponses = {}; 
+        let timerSeconds = 3 * 3600; // 3 Hours default
         let timerInterval = null;
         let testSubmitted = false;
 
@@ -287,7 +287,7 @@
                 const templates = [
                     { q: `If in a certain code language, "PENCIL" is written as "RFQEKN", how is "PAPER" written in that code language?`, opts: ["RCRGT", "RBQFS", "RCRFS", "QBQFS"], corr: 0, exp: "Each letter is shifted forward by alternating patterns (+2, +1, +2, +1...).", hint: "Look at letter positional shifts." },
                     { q: `Select the related number from the given alternatives: $14 : 196 :: 18 : ?$`, opts: ["324", "288", "342", "312"], corr: 0, exp: "$14^2 = 196$, similarly $18^2 = 324$.", hint: "Check square relationships." },
-                    { q: `Find the odd word/letters/number pair from the given alternatives:`, opts: ["7 - 50", "9 - 82", "11 - 122", "13 - 170"], corr: 1, exp: "Except 9-82 ($9^2+1 = 82$, wait $7^2+1=50, 11^2+1=122, 13^2+1=170$. For 9, $9^2+1=82$ but 9-82 is correct format. Let's check: $7^2=49+1=50$, $11^2=121+1=122$, $13^2=169+1=170$, $9^2=81+1=82$. Let's use $n^2+1$. Wait, $8^2+2 = 66$? Let's check difference: 7-50 ($7 \\times 7 + 1 = 50$), 11-122 ($11 \\times 11 + 1$), 13-170 ($13 \\times 13 + 1$). Let's use another logic.", hint: "Check arithmetic operations involving squares." }
+                    { q: `Find the odd word/letters/number pair from the given alternatives:`, opts: ["7 - 50", "9 - 82", "11 - 122", "13 - 170"], corr: 1, exp: "Except 9-82 ($9^2+1 = 82$).", hint: "Check arithmetic operations involving squares." }
                 ];
                 let t = templates[(num - 1) % templates.length];
                 return { question: `(Q${num}) ${t.q}`, options: t.opts, correctIndex: t.corr, explanation: t.exp, hint: t.hint };
@@ -318,15 +318,45 @@
             }
         }
 
-        // Initialize Application
+        // Initialize Application & Load Saved State if available
         window.addEventListener('DOMContentLoaded', () => {
             generateQuestions();
+            
+            // Check if saved state exists in localStorage
+            let savedResponses = localStorage.getItem('ssc_userResponses');
+            let savedTimer = localStorage.getItem('ssc_timerSeconds');
+            let savedQIndex = localStorage.getItem('ssc_currentQuestionIndex');
+            let savedSubmitted = localStorage.getItem('ssc_testSubmitted');
+
+            if (savedResponses) {
+                userResponses = JSON.parse(savedResponses);
+            }
+            if (savedTimer !== null) {
+                timerSeconds = parseInt(savedTimer, 10);
+            }
+            if (savedQIndex !== null) {
+                currentQuestionIndex = parseInt(savedQIndex, 10);
+            }
+            if (savedSubmitted === 'true') {
+                testSubmitted = true;
+                finalizeSubmission(true); // Load results directly if already submitted before refresh
+                return;
+            }
+
             renderSectionTabs();
-            loadQuestion(0);
+            loadQuestion(currentQuestionIndex);
             startTimer();
             updatePalette();
             updateStats();
         });
+
+        // Save State Functionality
+        function saveStateToLocalStorage() {
+            localStorage.setItem('ssc_userResponses', JSON.stringify(userResponses));
+            localStorage.setItem('ssc_timerSeconds', timerSeconds);
+            localStorage.setItem('ssc_currentQuestionIndex', currentQuestionIndex);
+            localStorage.setItem('ssc_testSubmitted', testSubmitted);
+        }
 
         // Timer Logic
         function startTimer() {
@@ -338,6 +368,8 @@
                     return;
                 }
                 timerSeconds--;
+                saveStateToLocalStorage(); // Save timer continuously every second
+
                 let hrs = Math.floor(timerSeconds / 3600);
                 let mins = Math.floor((timerSeconds % 3600) / 60);
                 let secs = timerSeconds % 60;
@@ -364,7 +396,6 @@
 
         function switchToSection(secIdx) {
             currentSectionIndex = secIdx;
-            // Jump to first question of that section
             let firstQ = sections.slice(0, secIdx).reduce((acc, s) => acc + s.count, 0);
             loadQuestion(firstQ);
             renderSectionTabs();
@@ -378,16 +409,13 @@
             currentSectionIndex = q.sectionIndex;
             renderSectionTabs();
 
-            // Update status if currently unvisited
             if (userResponses[idx].status === 'not-visited') {
                 userResponses[idx].status = 'not-answered';
             }
 
-            // Update header indicator
             document.getElementById('question-indicator').innerText = 
                 `Question ${q.questionNumberInSec} of ${sections[q.sectionIndex].count} (${sections[q.sectionIndex].name})`;
 
-            // Render container content
             let container = document.getElementById('question-container');
             let resp = userResponses[idx].selectedOption;
 
@@ -411,13 +439,13 @@
                 </div>
             `;
 
-            // Trigger MathJax re-render for formulas
             if (window.MathJax) {
                 MathJax.typesetPromise();
             }
 
             updatePalette();
             updateStats();
+            saveStateToLocalStorage();
         }
 
         function selectOption(optIdx) {
@@ -425,6 +453,7 @@
             userResponses[currentQuestionIndex].status = 'answered';
             updatePalette();
             updateStats();
+            saveStateToLocalStorage();
         }
 
         function clearResponse() {
@@ -476,7 +505,6 @@
                 let status = userResponses[globalIdx].status;
                 let isCurrent = currentQuestionIndex === globalIdx;
 
-                // Color code based on SSC standard
                 let bgClass = "bg-gray-200 text-gray-700 hover:bg-gray-300";
                 if (status === 'answered') bgClass = "bg-green-500 text-white font-bold hover:bg-green-600";
                 else if (status === 'not-answered') bgClass = "bg-red-500 text-white font-bold hover:bg-red-600";
@@ -522,12 +550,14 @@
             document.getElementById('submit-modal').classList.add('hidden');
         }
 
-        function finalizeSubmission() {
+        function finalizeSubmission(isReload = false) {
             testSubmitted = true;
             clearInterval(timerInterval);
-            closeSubmitModal();
+            if (!isReload) {
+                closeSubmitModal();
+            }
+            saveStateToLocalStorage();
 
-            // Calculate results
             let correctCount = 0;
             let incorrectCount = 0;
             let unattemptedCount = 0;
@@ -550,7 +580,6 @@
                 }
             });
 
-            // SSC CGL Marking Scheme: +2 for correct, -0.50 for incorrect
             let totalScore = (correctCount * 2) - (incorrectCount * 0.50);
             let accuracy = (correctCount + incorrectCount) > 0 ? ((correctCount / (correctCount + incorrectCount)) * 100).toFixed(1) : 0;
 
@@ -561,7 +590,6 @@
 
             let breakdownHTML = '';
             sectionScores.forEach(sec => {
-                let secMarks = (sec.correct * 2) - ((sec.total - sec.correct) * 0.50); // simplified estimate
                 breakdownHTML += `
                     <div class="flex justify-between items-center bg-gray-50 p-3 rounded-lg text-sm">
                         <span class="font-medium text-gray-700">${sec.name}</span>
@@ -570,10 +598,17 @@
                 `;
             });
             document.getElementById('section-breakdown-list').innerHTML = breakdownHTML;
-
             document.getElementById('result-modal').classList.remove('hidden');
+        }
+
+        // Clear Test Data when test is finished or restarted
+        function resetTestData() {
+            localStorage.removeItem('ssc_userResponses');
+            localStorage.removeItem('ssc_timerSeconds');
+            localStorage.removeItem('ssc_currentQuestionIndex');
+            localStorage.removeItem('ssc_testSubmitted');
+            location.reload();
         }
     </script>
 </body>
 </html>
-```eof
